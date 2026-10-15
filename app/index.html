@@ -1,0 +1,865 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alcanza</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --text: #1c2230;
+    --muted: #697080;
+    --line: #e3e6eb;
+    --green: #11733f;
+    --green-bg: #e6f4ec;
+    --red: #b8322a;
+    --red-bg: #fbeae8;
+    --gray: #8b929d;
+    --gray-bg: #eef0f3;
+    --accent: #1f3a8a;
+    --focus: #2b5bd7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 24px 16px 64px; }
+
+  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; }
+  header h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px;
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 20px;
+    align-items: end;
+  }
+  .label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 6px; }
+  .big-input {
+    font: inherit;
+    font-size: 28px;
+    font-weight: 600;
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    background: var(--surface);
+    color: var(--text);
+  }
+  .big-num { font-size: 28px; font-weight: 600; padding: 9px 0; }
+  .pos { color: var(--green); }
+  .neg { color: var(--red); }
+  .actions { display: flex; gap: 8px; }
+
+  button {
+    font: inherit;
+    cursor: pointer;
+    border-radius: 8px;
+    padding: 10px 16px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--text);
+  }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-in { background: var(--green); border-color: var(--green); color: #fff; font-weight: 600; }
+  .btn-out { background: var(--red); border-color: var(--red); color: #fff; font-weight: 600; }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .btn-link { border: 0; background: none; padding: 4px 0; color: var(--accent); text-decoration: underline; }
+  .btn-small { padding: 4px 10px; font-size: 13px; }
+  .btn-danger { color: var(--red); border-color: var(--red-bg); }
+
+  .tl { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px 12px; margin-top: 16px; }
+  .tl-read { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 4px; }
+  .tl-read .big-num { padding: 0; text-align: left; }
+  .tl-movs { display: flex; flex-direction: column; gap: 2px; font-size: 14px; text-align: right; }
+  .tl-movs .muted { color: var(--muted); }
+  .tl-chart { touch-action: none; cursor: ew-resize; user-select: none; -webkit-user-select: none; }
+  .tl-chart svg { display: block; width: 100%; overflow: visible; }
+  .tl-chart text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .tl input[type="range"] { display: block; margin: 2px 0 0; accent-color: var(--accent); }
+  .tl-hint { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
+  .row[data-day] { cursor: pointer; }
+  .row.future { opacity: .45; }
+  .row.on { box-shadow: inset 4px 0 0 var(--accent); }
+
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin: 24px 0 8px; gap: 12px; flex-wrap: wrap; }
+  .toolbar h2 { font-size: 16px; margin: 0; }
+  .tabs { display: flex; gap: 4px; background: var(--gray-bg); padding: 3px; border-radius: 8px; }
+  .tabs button { border: 0; background: none; padding: 6px 12px; font-size: 14px; }
+  .tabs button[aria-pressed="true"] { background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,.08); font-weight: 600; }
+
+  .list { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .row {
+    display: grid;
+    grid-template-columns: 96px 1fr 130px 130px 170px;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 16px;
+    border-top: 1px solid var(--line);
+  }
+  .row:first-child { border-top: 0; }
+  .row.head { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; padding-top: 10px; padding-bottom: 10px; background: #fafbfc; }
+  .row.short { background: var(--red-bg); }
+  .date { color: var(--muted); font-size: 14px; }
+  .date small { font-size: 12px; }
+  .sub { font-size: 14px; color: var(--muted); }
+  .sub strong { font-weight: 600; }
+  .panel { align-items: start; }
+  .tl-legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin: 6px 0 2px; }
+  .tl-legend svg { vertical-align: middle; margin-right: 4px; }
+  .saldo-prev { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
+  .recon { margin: 8px 0 0; font-size: 13px; color: var(--muted); line-height: 1.6; }
+  .recon:empty { display: none; }
+  .recon strong { color: var(--text); }
+  .concept { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .concept strong { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; width: fit-content; }
+  .b-conf { background: var(--green-bg); color: var(--green); }
+  .b-prev { background: var(--gray-bg); color: var(--gray); }
+  .b-gasto { background: var(--red-bg); color: var(--red); }
+  .amt-in { color: var(--green); font-weight: 600; }
+  .amt-in.prev { color: var(--gray); }
+  .amt-out { color: var(--red); font-weight: 600; }
+  .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+  .hide-saldo .col-saldo { visibility: hidden; }
+
+  .empty { padding: 40px 16px; text-align: center; color: var(--muted); }
+  .empty p { margin: 0 0 12px; }
+
+  footer { margin-top: 16px; display: flex; gap: 16px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+
+  dialog {
+    border: 0;
+    border-radius: 12px;
+    padding: 0;
+    width: min(440px, calc(100vw - 32px));
+    box-shadow: 0 20px 50px rgba(0,0,0,.25);
+    color: var(--text);
+  }
+  dialog::backdrop { background: rgba(20,24,33,.45); }
+  form.mov { padding: 20px; display: grid; gap: 14px; }
+  form.mov h3 { margin: 0; font-size: 18px; }
+  .field input[type="text"], .field input[type="date"] {
+    font: inherit;
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+  }
+  .field input.amount { text-align: right; font-variant-numeric: tabular-nums; font-size: 18px; }
+  .field.invalid input { border-color: var(--red); background: var(--red-bg); }
+  .err { color: var(--red); font-size: 13px; margin-top: 4px; min-height: 0; }
+  .err:empty { display: none; }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .seg label {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 9px;
+    text-align: center;
+    cursor: pointer;
+  }
+  .seg input { position: absolute; opacity: 0; pointer-events: none; }
+  .seg input:checked + span { font-weight: 600; }
+  .seg label:has(input:checked) { border-color: var(--accent); background: #eef2fc; }
+  .seg label:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+  .form-actions .spacer { flex: 1; }
+
+  .toast {
+    white-space: nowrap;
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--text);
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 8px;
+    opacity: 0;
+    transition: opacity .2s, transform .2s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media (max-width: 680px) {
+    .panel { grid-template-columns: 1fr; }
+    .actions button { flex: 1; }
+    .row.head { display: none; }
+    .row {
+      grid-template-columns: 1fr auto;
+      grid-template-areas: "concept amount" "date saldo" "actions actions";
+      row-gap: 4px;
+    }
+    .row .date { grid-area: date; }
+    .row .concept { grid-area: concept; }
+    .row .col-amt { grid-area: amount; }
+    .row .col-saldo { grid-area: saldo; font-size: 13px; }
+    .row .col-saldo::before { content: "Saldo confirmado "; color: var(--muted); font-weight: 400; }
+    .row .row-actions { grid-area: actions; justify-content: flex-start; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Alcanza</h1>
+    <p>¿Me alcanza el dinero? Cobros, gastos y saldo día a día.</p>
+  </header>
+
+  <section class="panel" aria-label="Resumen">
+    <div>
+      <span class="label">Saldo confirmado hoy</span>
+      <div id="hoyReal" class="big-num num">$ 0</div>
+      <div id="hoyProy" class="sub num"></div>
+      <p class="recon" id="recon"></p>
+    </div>
+    <div>
+      <span class="label" id="saldoFinalLabel">Saldo confirmado al final</span>
+      <div id="finReal" class="big-num num">$ 0</div>
+      <div id="finProy" class="sub num"></div>
+      <p class="recon">&nbsp;</p>
+    </div>
+    <div class="actions">
+      <button class="btn-in" id="addCobro">+ Cobro</button>
+      <button class="btn-out" id="addGasto">+ Gasto</button>
+    </div>
+  </section>
+
+  <section class="tl" id="tl" aria-label="Línea de tiempo del saldo" hidden>
+    <div class="tl-read">
+      <div>
+        <span class="label" id="tlFecha">—</span>
+        <div id="tlSaldo" class="big-num num">—</div>
+        <div id="tlProy" class="sub"></div>
+      </div>
+      <div id="tlMovs" class="tl-movs"></div>
+    </div>
+    <div class="tl-legend">
+      <span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" style="stroke:var(--green);stroke-width:2"/></svg>Confirmado</span>
+      <span><svg width="22" height="8"><line x1="0" x2="22" y1="4" y2="4" style="stroke:var(--gray);stroke-width:2;stroke-dasharray:5 4"/></svg>Con previstos</span>
+    </div>
+    <div id="tlChart" class="tl-chart"></div>
+    <input type="range" id="tlRange" min="0" max="0" value="0" aria-label="Día en la línea de tiempo">
+    <p class="tl-hint">Arrastrá sobre el gráfico o el control para ver el saldo de cada día.</p>
+  </section>
+
+  <div class="toolbar">
+    <h2>Movimientos por fecha</h2>
+    <div class="tabs" role="group" aria-label="Filtrar movimientos">
+      <button data-filter="todos" aria-pressed="true">Todos</button>
+      <button data-filter="cobro" aria-pressed="false">Cobros</button>
+      <button data-filter="gasto" aria-pressed="false">Gastos</button>
+    </div>
+  </div>
+
+  <div id="list" class="list" aria-live="polite"></div>
+
+  <footer>
+    <button class="btn-link" id="loadSample">Cargar datos de ejemplo</button>
+    <button class="btn-link" id="clearAll">Borrar todo</button>
+    <span id="ejemploNote" hidden>Estás viendo datos de ejemplo.</span>
+    <span>Los datos se guardan en este navegador.</span>
+  </footer>
+</div>
+
+<dialog id="dlg">
+  <form class="mov" id="movForm" novalidate>
+    <h3 id="dlgTitle">Nuevo cobro</h3>
+
+    <div class="field" id="fImporte">
+      <label class="label" for="importe">Importe</label>
+      <input id="importe" class="amount" type="text" inputmode="decimal" placeholder="$ 0" autocomplete="off">
+      <div class="err" id="eImporte"></div>
+    </div>
+
+    <div class="field" id="fFecha">
+      <label class="label" for="fecha" id="fechaLabel">Fecha de cobro</label>
+      <input id="fecha" type="date">
+      <div class="err" id="eFecha"></div>
+    </div>
+
+    <div class="field" id="fEstado">
+      <span class="label">Estado</span>
+      <div class="seg">
+        <label><input type="radio" name="estado" value="previsto" checked><span>Previsto</span></label>
+        <label><input type="radio" name="estado" value="confirmado"><span>Confirmado</span></label>
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="label" for="concepto">Concepto (opcional)</label>
+      <input id="concepto" type="text" placeholder="Ej.: Cliente A, alquiler" autocomplete="off">
+    </div>
+
+    <div class="form-actions">
+      <button type="button" class="btn-danger" id="btnDelete" hidden>Eliminar</button>
+      <span class="spacer"></span>
+      <button type="button" id="btnCancel">Cancelar</button>
+      <button type="submit" class="btn-primary" id="btnSave">Guardar</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  const KEY = 'alcanza.v1';
+  let state = { movs: [] };
+  let filter = 'todos';
+  let editing = null; // { tipo, id|null }
+  let resetDelete = () => {};
+
+  const $ = (id) => document.getElementById(id);
+  const money = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+  const moneyCents = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmt = (n) => {
+    const abs = Math.abs(n);
+    return (n < 0 ? '− ' : '') + (Number.isInteger(Math.round(abs * 100) / 100) ? money : moneyCents).format(abs);
+  };
+
+  function load() {
+    try {
+      const s = JSON.parse(localStorage.getItem(KEY));
+      if (s && Array.isArray(s.movs)) { state = s; return true; }
+    } catch (e) {}
+    return false;
+  }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+  }
+  function newId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  // Acepta "250000", "250.000", "250.000,50", "$ 1.500" y "-500".
+  function parseMonto(raw) {
+    let s = String(raw || '').trim().replace(/\$|\s/g, '');
+    if (s === '') return null;
+    if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+    else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+    const n = Number(s);
+    return Number.isFinite(n) ? n : NaN;
+  }
+
+  function fmtFecha(iso) {
+    const [y, m, d] = iso.split('-').map(Number);
+    const dia = new Date(y, m - 1, d).toLocaleDateString('es-AR', { weekday: 'short' });
+    const pad = (n) => String(n).padStart(2, '0');
+    const anio = y !== new Date().getFullYear() ? '/' + y : '';
+    return dia + ' ' + pad(d) + '/' + pad(m) + anio;
+  }
+
+  // Orden cronológico; el mismo día, primero los cobros y después los gastos.
+  function sorted() {
+    return state.movs.slice().sort((a, b) =>
+      a.fecha.localeCompare(b.fecha) ||
+      (a.tipo === b.tipo ? 0 : a.tipo === 'cobro' ? -1 : 1) ||
+      a.creado - b.creado);
+  }
+
+  const neto = (m) => (m.tipo === 'cobro' ? m.importe : -m.importe);
+
+  // Dos saldos, ambos desde $ 0 al inicio del período:
+  // - confirmado (real): cobros confirmados menos todos los gastos comprometidos;
+  // - con previstos (proyectado): suma además los cobros que todavía no entraron.
+  const cuentaEnReal = (m) => m.tipo === 'gasto' || m.estado === 'confirmado';
+
+  // El período arranca el día 1 del mes del primer movimiento (o del mes actual).
+  function inicioPeriodo() {
+    const first = state.movs.reduce((min, m) => Math.min(min, isoToDay(m.fecha)), todayDay());
+    return isoToDay(dayToIso(first).slice(0, 8) + '01');
+  }
+
+  function conciliacion() {
+    const hoy = todayDay();
+    const hastaHoy = state.movs.filter((m) => isoToDay(m.fecha) <= hoy);
+    const sum = (arr) => arr.reduce((a, m) => a + m.importe, 0);
+    const conf = sum(hastaHoy.filter((m) => m.tipo === 'cobro' && m.estado === 'confirmado'));
+    const prev = sum(hastaHoy.filter((m) => m.tipo === 'cobro' && m.estado !== 'confirmado'));
+    const gastos = sum(hastaHoy.filter((m) => m.tipo === 'gasto'));
+    return { inicio: inicioPeriodo(), conf, prev, gastos, real: conf - gastos, proy: conf + prev - gastos };
+  }
+
+  function withSaldo() {
+    let saldo = 0;
+    let real = 0;
+    const hoy = todayDay();
+    return sorted().map((m) => {
+      saldo += neto(m);
+      if (cuentaEnReal(m)) real += neto(m);
+      return { ...m, saldo, real, pasado: isoToDay(m.fecha) < hoy };
+    });
+  }
+
+  const tono = (v) => (v < 0 ? 'neg' : 'pos');
+
+  function render() {
+    const rows = withSaldo();
+    $('ejemploNote').hidden = !state.ejemplo;
+    buildTimeline(rows);
+    drawChart();
+    updateReadout();
+    const list = $('list');
+    list.classList.toggle('hide-saldo', filter !== 'todos');
+
+    const last = rows[rows.length - 1];
+    const finReal = last ? last.real : 0;
+    const finProy = last ? last.saldo : 0;
+    $('finReal').textContent = fmt(finReal);
+    $('finReal').className = 'big-num num ' + tono(finReal);
+    $('finProy').innerHTML = 'Con previstos <strong class="' + tono(finProy) + '">' + fmt(finProy) + '</strong>';
+    $('saldoFinalLabel').textContent = 'Saldo confirmado al final' + (last ? ' · ' + fmtFecha(last.fecha) : '');
+
+    const c = conciliacion();
+    $('hoyReal').textContent = fmt(c.real);
+    $('hoyReal').className = 'big-num num ' + tono(c.real);
+    $('hoyProy').innerHTML = 'Con previstos <strong class="' + tono(c.proy) + '">' + fmt(c.proy) + '</strong>';
+    const ini = dayToIso(c.inicio);
+    $('recon').innerHTML =
+      'Inicio ' + ini.slice(8, 10) + '/' + ini.slice(5, 7) + ' con $ 0' +
+      ' <span class="amt-in">+ ' + fmt(c.conf) + '</span> cobrado' +
+      ' <span class="amt-out">− ' + fmt(c.gastos) + '</span> gastos' +
+      ' = <strong>' + fmt(c.real) + '</strong>' +
+      (c.prev ? '<br>Previstos con fecha vencida sin confirmar: ' + fmt(c.prev) : '');
+
+    const visible = rows.filter((r) => filter === 'todos' || r.tipo === filter);
+    if (!visible.length) {
+      list.innerHTML = rows.length
+        ? '<div class="empty"><p>No hay ' + (filter === 'cobro' ? 'cobros' : 'gastos') + ' cargados.</p></div>'
+        : '<div class="empty"><p>Todavía no cargaste movimientos.</p><p>Sumá un cobro o un gasto para empezar.</p></div>';
+      return;
+    }
+
+    const head = '<div class="row head"><span>Fecha</span><span>Concepto</span><span class="num">Importe</span><span class="num col-saldo">Saldo confirmado</span><span></span></div>';
+    list.innerHTML = head + visible.map((r) => {
+      const isCobro = r.tipo === 'cobro';
+      const prev = isCobro && r.estado === 'previsto';
+      const badge = isCobro
+        ? (prev ? '<span class="badge b-prev">Cobro previsto</span>' : '<span class="badge b-conf">Cobro confirmado</span>')
+        : '<span class="badge b-gasto">Gasto</span>';
+      const nombre = r.concepto ? escapeHtml(r.concepto) : (isCobro ? 'Cobro' : 'Gasto');
+      const amt = isCobro
+        ? '<span class="num col-amt amt-in' + (prev ? ' prev' : '') + '">+ ' + fmt(r.importe) + '</span>'
+        : '<span class="num col-amt amt-out">− ' + fmt(r.importe) + '</span>';
+      const confirmBtn = prev ? '<button class="btn-small" data-confirm="' + r.id + '">Confirmar</button>' : '';
+      const conPrev = r.saldo !== r.real
+        ? '<span class="saldo-prev">con previstos <span class="' + tono(r.saldo) + '">' + fmt(r.saldo) + '</span></span>'
+        : '';
+      return '<div class="row' + (r.real < 0 && filter === 'todos' ? ' short' : '') + '" data-day="' + isoToDay(r.fecha) + '">' +
+        '<span class="date">' + fmtFecha(r.fecha) + (r.pasado ? '<br><small>ya pasó</small>' : '') + '</span>' +
+        '<span class="concept"><strong>' + nombre + '</strong>' + badge + '</span>' +
+        amt +
+        '<span class="num col-saldo"><strong class="' + tono(r.real) + '">' + fmt(r.real) + '</strong>' + conPrev + '</span>' +
+        '<span class="row-actions">' + confirmBtn + '<button class="btn-small" data-edit="' + r.id + '">Editar</button></span>' +
+        '</div>';
+    }).join('');
+    markRows();
+  }
+
+  // ----- Línea de tiempo del saldo -----
+  const DAY = 86400000;
+  const PL = 64, PR = 14, PT = 14, PB = 26; // márgenes del área del gráfico
+  let tl = null;
+  let cursor = null; // día seleccionado (días desde 1970)
+
+  function isoToDay(iso) {
+    const [y, m, d] = iso.split('-').map(Number);
+    return Math.round(Date.UTC(y, m - 1, d) / DAY);
+  }
+  function dayToIso(n) { return new Date(n * DAY).toISOString().slice(0, 10); }
+  function todayDay() {
+    const t = new Date();
+    return Math.round(Date.UTC(t.getFullYear(), t.getMonth(), t.getDate()) / DAY);
+  }
+  const compact = new Intl.NumberFormat('es-AR', { notation: 'compact', maximumFractionDigits: 1 });
+  const fmtShort = (v) => (v < 0 ? '− ' : '') + '$ ' + compact.format(Math.abs(v));
+
+  // Saldos al cierre de cada día, desde el inicio del período (con $ 0).
+  function buildTimeline(rows) {
+    if (!rows.length) { tl = null; return; }
+    const today = todayDay();
+    const days = rows.map((r) => isoToDay(r.fecha));
+    const start = inicioPeriodo();
+    const end = Math.max(days[days.length - 1] + 1, today, start + 1);
+    const saldo = [];
+    const real = [];
+    let s = 0;
+    let r = 0;
+    let j = 0;
+    for (let d = start; d <= end; d++) {
+      while (j < rows.length && days[j] === d) { s = rows[j].saldo; r = rows[j].real; j++; }
+      saldo.push(s);
+      real.push(r);
+    }
+    tl = { start, end, saldo, real, rows, days, today };
+    if (cursor == null || cursor < start || cursor > end) cursor = Math.min(Math.max(today, start), end);
+  }
+
+  function drawChart() {
+    $('tl').hidden = !tl;
+    if (!tl) return;
+    const box = $('tlChart');
+    const W = box.clientWidth || 600;
+    const H = 200;
+    const { start, end, saldo, real } = tl;
+    const todos = saldo.concat(real);
+    let lo = Math.min(0, ...todos);
+    let hi = Math.max(0, ...todos);
+    if (hi === lo) hi = lo + 1;
+    const pad = (hi - lo) * 0.08;
+    if (lo < 0) lo -= pad;
+    hi += pad;
+    const x = (d) => PL + (d - start) / (end - start) * (W - PL - PR);
+    const y = (v) => PT + (hi - v) / (hi - lo) * (H - PT - PB);
+
+    // Línea escalonada que parte de $ 0 y salta el día de cada movimiento.
+    const stepPath = (serie) => {
+      let p = 'M' + x(start) + ',' + y(0);
+      let prev = 0;
+      serie.forEach((v, i) => {
+        if (v !== prev) p += 'H' + x(start + i) + 'V' + y(v);
+        prev = v;
+      });
+      return p + 'H' + x(end);
+    };
+    const line = stepPath(real);
+    const lineProy = stepPath(saldo);
+    const y0 = y(0);
+    const area = line + 'V' + y0 + 'H' + x(start) + 'Z';
+
+    // Marcas del eje X: un paso que deje al menos 56 px entre etiquetas.
+    const span = end - start;
+    const plotW = W - PL - PR;
+    const step = [1, 2, 3, 7, 14, 28, 56].find((s) => plotW / (span / s) >= 56) || 91;
+    let xt = '';
+    for (let d = start; d <= end; d += step) {
+      const iso = dayToIso(d);
+      xt += '<text x="' + x(d) + '" y="' + (H - 8) + '" text-anchor="middle">' + iso.slice(8, 10) + '/' + iso.slice(5, 7) + '</text>';
+    }
+
+    const maxS = Math.max(...todos);
+    const minS = Math.min(...todos);
+    let yt = '<text x="' + (PL - 8) + '" y="' + (y0 + 4) + '" text-anchor="end">$ 0</text>';
+    if (maxS > 0) yt += '<text x="' + (PL - 8) + '" y="' + (y(maxS) + 4) + '" text-anchor="end">' + fmtShort(maxS) + '</text>';
+    if (minS < 0) yt += '<text x="' + (PL - 8) + '" y="' + (y(minS) + 4) + '" text-anchor="end">' + fmtShort(minS) + '</text>';
+
+    let hoy = '';
+    if (tl.today >= start && tl.today <= end) {
+      const tx = x(tl.today);
+      hoy = '<line x1="' + tx + '" x2="' + tx + '" y1="' + PT + '" y2="' + (H - PB) + '" style="stroke:var(--gray);stroke-dasharray:3 3"/>' +
+        '<text x="' + (tx + 4) + '" y="' + (PT + 2) + '">hoy</text>';
+    }
+
+    const color = (v) => (v < 0 ? 'var(--red)' : 'var(--green)');
+    const marks = [...new Set(tl.days)].map((d) => {
+      const v = real[d - start];
+      return '<circle cx="' + x(d) + '" cy="' + y(v) + '" r="4" style="fill:' + color(v) + ';stroke:var(--surface);stroke-width:2"/>';
+    }).join('');
+
+    const cv = real[cursor - start];
+    const pv = saldo[cursor - start];
+    const cx = x(cursor);
+    const cur = '<line x1="' + cx + '" x2="' + cx + '" y1="' + PT + '" y2="' + (H - PB) + '" style="stroke:var(--text);stroke-width:1"/>' +
+      (pv !== cv ? '<circle cx="' + cx + '" cy="' + y(pv) + '" r="5" style="fill:var(--surface);stroke:var(--gray);stroke-width:2"/>' : '') +
+      '<circle cx="' + cx + '" cy="' + y(cv) + '" r="7" style="fill:' + color(cv) + ';stroke:var(--surface);stroke-width:3"/>';
+
+    box.innerHTML =
+      '<svg viewBox="0 0 ' + W + ' ' + H + '" height="' + H + '" role="img" aria-label="Saldo proyectado día por día">' +
+      '<defs>' +
+      '<clipPath id="cPos"><rect x="0" y="0" width="' + W + '" height="' + y0 + '"/></clipPath>' +
+      '<clipPath id="cNeg"><rect x="0" y="' + y0 + '" width="' + W + '" height="' + (H - y0) + '"/></clipPath>' +
+      '</defs>' +
+      '<path d="' + area + '" clip-path="url(#cPos)" style="fill:var(--green-bg)"/>' +
+      '<path d="' + area + '" clip-path="url(#cNeg)" style="fill:var(--red-bg)"/>' +
+      '<line x1="' + PL + '" x2="' + (W - PR) + '" y1="' + y0 + '" y2="' + y0 + '" style="stroke:var(--line);stroke-width:1"/>' +
+      hoy +
+      '<path d="' + lineProy + '" style="fill:none;stroke:var(--gray);stroke-width:2;stroke-dasharray:5 4"/>' +
+      '<path d="' + line + '" clip-path="url(#cPos)" style="fill:none;stroke:var(--green);stroke-width:2"/>' +
+      '<path d="' + line + '" clip-path="url(#cNeg)" style="fill:none;stroke:var(--red);stroke-width:2"/>' +
+      marks + yt + xt + cur +
+      '</svg>';
+
+    const range = $('tlRange');
+    range.min = start;
+    range.max = end;
+    range.value = cursor;
+    range.style.marginLeft = PL + 'px';
+    range.style.width = 'calc(100% - ' + (PL + PR) + 'px)';
+  }
+
+  function updateReadout() {
+    if (!tl) return;
+    const s = tl.real[cursor - tl.start];
+    const p = tl.saldo[cursor - tl.start];
+    $('tlFecha').textContent = 'Saldo confirmado el ' + fmtFecha(dayToIso(cursor)) + (cursor === tl.today ? ' · hoy' : '');
+    const el = $('tlSaldo');
+    el.textContent = fmt(s);
+    el.className = 'big-num num ' + tono(s);
+    $('tlProy').innerHTML = 'Con previstos <strong class="' + tono(p) + '">' + fmt(p) + '</strong>';
+    const delDia = tl.rows.filter((r, i) => tl.days[i] === cursor);
+    $('tlMovs').innerHTML = delDia.length
+      ? delDia.map((r) => {
+          const cobro = r.tipo === 'cobro';
+          const nombre = r.concepto ? escapeHtml(r.concepto) : (cobro ? 'Cobro' : 'Gasto');
+          return '<span><span class="num ' + (cobro ? 'amt-in' + (r.estado === 'previsto' ? ' prev' : '') : 'amt-out') + '">' +
+            (cobro ? '+ ' : '− ') + fmt(r.importe) + '</span> ' + nombre + '</span>';
+        }).join('')
+      : '<span class="muted">Sin movimientos este día</span>';
+  }
+
+  function markRows() {
+    document.querySelectorAll('.row[data-day]').forEach((el) => {
+      const d = Number(el.dataset.day);
+      el.classList.toggle('future', cursor != null && d > cursor);
+      el.classList.toggle('on', d === cursor);
+    });
+  }
+
+  function setCursor(d) {
+    if (!tl) return;
+    d = Math.min(Math.max(d, tl.start), tl.end);
+    if (d === cursor) return;
+    cursor = d;
+    drawChart();
+    updateReadout();
+    markRows();
+  }
+
+  const chartBox = $('tlChart');
+  let dragging = false;
+  function dayFromX(clientX) {
+    const r = chartBox.getBoundingClientRect();
+    const f = Math.min(1, Math.max(0, (clientX - r.left - PL) / (r.width - PL - PR)));
+    return Math.round(tl.start + f * (tl.end - tl.start));
+  }
+  chartBox.addEventListener('pointerdown', (e) => {
+    if (!tl) return;
+    dragging = true;
+    chartBox.setPointerCapture(e.pointerId);
+    setCursor(dayFromX(e.clientX));
+  });
+  chartBox.addEventListener('pointermove', (e) => { if (dragging) setCursor(dayFromX(e.clientX)); });
+  chartBox.addEventListener('pointerup', () => { dragging = false; });
+  chartBox.addEventListener('pointercancel', () => { dragging = false; });
+  $('tlRange').addEventListener('input', (e) => setCursor(Number(e.target.value)));
+  window.addEventListener('resize', drawChart);
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  let toastTimer;
+  function toast(msg) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  // ----- Formulario -----
+  const dlg = $('dlg');
+  const form = $('movForm');
+  const fImporte = $('importe');
+  const fFecha = $('fecha');
+  const fConcepto = $('concepto');
+
+  function openForm(tipo, id) {
+    editing = { tipo, id: id || null };
+    const m = id ? state.movs.find((x) => x.id === id) : null;
+    const isCobro = tipo === 'cobro';
+    $('dlgTitle').textContent = (m ? 'Editar ' : 'Nuevo ') + (isCobro ? 'cobro' : 'gasto');
+    $('fechaLabel').textContent = isCobro ? 'Fecha de cobro' : 'Fecha de vencimiento';
+    $('fEstado').hidden = !isCobro;
+    $('btnDelete').hidden = !m;
+    fImporte.value = m ? String(m.importe).replace('.', ',') : '';
+    fFecha.value = m ? m.fecha : '';
+    fConcepto.value = m ? m.concepto || '' : '';
+    form.estado.value = m && m.estado ? m.estado : 'previsto';
+    clearErrors();
+    resetDelete();
+    dlg.showModal();
+    fImporte.focus();
+  }
+
+  function clearErrors() {
+    ['Importe', 'Fecha'].forEach((k) => {
+      $('f' + k).classList.remove('invalid');
+      $('e' + k).textContent = '';
+    });
+    $('btnSave').disabled = false;
+  }
+
+  function importeError(v) {
+    if (v === null) return 'Ingresá un importe.';
+    if (Number.isNaN(v)) return 'El importe tiene que ser un número.';
+    if (v <= 0) return 'El importe tiene que ser mayor a $ 0.';
+    return '';
+  }
+
+  function setError(k, msg) {
+    $('f' + k).classList.toggle('invalid', !!msg);
+    $('e' + k).textContent = msg;
+  }
+
+  // Un importe escrito que no es válido se marca al instante y bloquea Guardar.
+  fImporte.addEventListener('input', () => {
+    const v = parseMonto(fImporte.value);
+    const msg = v === null ? '' : importeError(v);
+    setError('Importe', msg);
+    $('btnSave').disabled = !!msg;
+  });
+  fFecha.addEventListener('input', () => { if (fFecha.value) setError('Fecha', ''); });
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const importe = parseMonto(fImporte.value);
+    const eImp = importeError(importe);
+    const eFec = fFecha.value ? '' : 'Elegí una fecha.';
+    setError('Importe', eImp);
+    setError('Fecha', eFec);
+    if (eImp || eFec) {
+      (eImp ? fImporte : fFecha).focus();
+      return;
+    }
+    const data = {
+      tipo: editing.tipo,
+      importe,
+      fecha: fFecha.value,
+      concepto: fConcepto.value.trim(),
+    };
+    if (editing.tipo === 'cobro') data.estado = form.estado.value;
+    const label = editing.tipo === 'cobro' ? 'Cobro' : 'Gasto';
+    if (editing.id) {
+      Object.assign(state.movs.find((x) => x.id === editing.id), data);
+      toast(label + ' actualizado');
+    } else {
+      state.movs.push({ id: newId(), creado: Date.now(), ...data });
+      toast(label + ' guardado');
+    }
+    save();
+    dlg.close();
+    render();
+  });
+
+  // Las acciones que borran datos piden un segundo clic en el mismo botón,
+  // en lugar de un diálogo del navegador.
+  function twoStep(btn, ask, action, needs) {
+    const original = btn.textContent;
+    let armed = false;
+    let timer;
+    function reset() {
+      armed = false;
+      clearTimeout(timer);
+      btn.textContent = original;
+    }
+    btn.addEventListener('click', () => {
+      if (needs && !needs()) { action(); return; }
+      if (!armed) {
+        armed = true;
+        btn.textContent = ask;
+        timer = setTimeout(reset, 4000);
+        return;
+      }
+      reset();
+      action();
+    });
+    return reset;
+  }
+
+  $('btnCancel').addEventListener('click', () => dlg.close());
+  resetDelete = twoStep($('btnDelete'), '¿Seguro? Eliminar', () => {
+    state.movs = state.movs.filter((x) => x.id !== editing.id);
+    save();
+    dlg.close();
+    render();
+    toast('Movimiento eliminado');
+  });
+
+  $('addCobro').addEventListener('click', () => openForm('cobro'));
+  $('addGasto').addEventListener('click', () => openForm('gasto'));
+
+  $('list').addEventListener('click', (e) => {
+    const ed = e.target.closest('[data-edit]');
+    const cf = e.target.closest('[data-confirm]');
+    if (ed) {
+      const m = state.movs.find((x) => x.id === ed.dataset.edit);
+      openForm(m.tipo, m.id);
+    } else if (cf) {
+      state.movs.find((x) => x.id === cf.dataset.confirm).estado = 'confirmado';
+      save();
+      render();
+      toast('Cobro confirmado');
+    } else {
+      const row = e.target.closest('.row[data-day]');
+      if (row) setCursor(Number(row.dataset.day));
+    }
+  });
+
+  document.querySelectorAll('.tabs button').forEach((b) => {
+    b.addEventListener('click', () => {
+      filter = b.dataset.filter;
+      document.querySelectorAll('.tabs button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      render();
+    });
+  });
+
+  // Datos de prueba de la ficha (entregable para la clase 4). El período arranca el
+  // 01/10 con $ 0; los tres primeros movimientos llevan el saldo a los $ 180.000 de
+  // dinero disponible que plantea la ficha antes del alquiler del 10/10.
+  function cargarEjemplo() {
+    const y = new Date().getFullYear();
+    const t = Date.now();
+    state = {
+      movs: [
+        { tipo: 'cobro', importe: 150000, fecha: y + '-10-02', estado: 'confirmado', concepto: 'Cliente E' },
+        { tipo: 'gasto', importe: 30000, fecha: y + '-10-05', concepto: 'Servicios' },
+        { tipo: 'cobro', importe: 60000, fecha: y + '-10-07', estado: 'confirmado', concepto: 'Cliente D' },
+        { tipo: 'gasto', importe: 150000, fecha: y + '-10-10', concepto: 'Alquiler' },
+        { tipo: 'cobro', importe: 250000, fecha: y + '-10-20', estado: 'confirmado', concepto: 'Cliente A · factura aceptada' },
+        { tipo: 'gasto', importe: 45000, fecha: y + '-10-25', concepto: 'Monotributo y servicios' },
+        { tipo: 'gasto', importe: 300000, fecha: y + '-11-02', concepto: 'Pago a proveedor' },
+        { tipo: 'cobro', importe: 120000, fecha: y + '-11-05', estado: 'previsto', concepto: 'Cliente B · suele pagar tarde' },
+        { tipo: 'cobro', importe: 90000, fecha: y + '-11-18', estado: 'previsto', concepto: 'Cliente C' },
+      ].map((m, i) => ({ id: newId(), creado: t + i, ...m })),
+      ejemplo: true,
+    };
+    save();
+  }
+
+  twoStep($('loadSample'), '¿Reemplazar lo cargado? Confirmar', () => {
+    cargarEjemplo();
+    render();
+    toast('Datos de ejemplo cargados');
+  }, () => state.movs.length > 0);
+
+  twoStep($('clearAll'), '¿Borrar todo? Confirmar', () => {
+    state = { movs: [] };
+    save();
+    render();
+    toast('Empezás de cero');
+  }, () => state.movs.length > 0);
+
+  // La primera vez que alguien abre la app ve los datos de ejemplo cargados.
+  if (!load()) cargarEjemplo();
+  render();
+})();
+</script>
+</body>
+</html>
