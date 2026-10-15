@@ -273,7 +273,7 @@
     <button class="btn-link" id="loadSample">Cargar datos de ejemplo</button>
     <button class="btn-link" id="clearAll">Borrar todo</button>
     <span id="ejemploNote" hidden>Estás viendo datos de ejemplo.</span>
-    <span>Los datos se guardan en este navegador.</span>
+    <span id="storageNote"></span>
   </footer>
 </div>
 
@@ -317,6 +317,8 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
 <script>
 (function () {
   const KEY = 'alcanza.v1';
@@ -333,18 +335,98 @@
     return (n < 0 ? '− ' : '') + (Number.isInteger(Math.round(abs * 100) / 100) ? money : moneyCents).format(abs);
   };
 
-  function load() {
+  // ----- Dónde se guardan los datos -----
+  // Con config.js completo, en una tabla compartida de Supabase; si no, en este navegador.
+  const cfg = window.ALCANZA_CONFIG || {};
+  const quiereSupabase = !!(cfg.supabaseUrl && cfg.supabaseAnonKey);
+  const db = quiereSupabase && window.supabase
+    ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey)
+    : null;
+
+  function loadLocal() {
     try {
       const s = JSON.parse(localStorage.getItem(KEY));
       if (s && Array.isArray(s.movs)) { state = s; return true; }
     } catch (e) {}
     return false;
   }
-  function save() {
+  function saveLocal() {
+    if (db) return;
     try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
   }
   function newId() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  const fromRow = (r) => ({
+    id: r.id,
+    tipo: r.tipo,
+    importe: Number(r.importe),
+    fecha: r.fecha,
+    estado: r.estado || undefined,
+    concepto: r.concepto || '',
+    creado: Number(r.creado),
+  });
+  const toRow = (m) => ({
+    tipo: m.tipo,
+    importe: m.importe,
+    fecha: m.fecha,
+    estado: m.tipo === 'cobro' ? m.estado : null,
+    concepto: m.concepto || '',
+    creado: m.creado,
+  });
+  function check(res) {
+    if (res.error) throw res.error;
+    return res.data;
+  }
+
+  const store = {
+    async fetch() {
+      if (!db) return;
+      state.movs = check(await db.from('movimientos').select('*')).map(fromRow);
+    },
+    async add(data) {
+      const m = { creado: Date.now(), ...data };
+      if (db) state.movs.push(fromRow(check(await db.from('movimientos').insert(toRow(m)).select().single())));
+      else state.movs.push({ id: newId(), ...m });
+      saveLocal();
+    },
+    async update(id, patch) {
+      const m = state.movs.find((x) => x.id === id);
+      if (db) check(await db.from('movimientos').update(toRow({ ...m, ...patch })).eq('id', id));
+      Object.assign(m, patch);
+      saveLocal();
+    },
+    async remove(id) {
+      if (db) check(await db.from('movimientos').delete().eq('id', id));
+      state.movs = state.movs.filter((x) => x.id !== id);
+      saveLocal();
+    },
+    async replaceAll(movs) {
+      if (db) {
+        check(await db.from('movimientos').delete().not('id', 'is', null));
+        state.movs = movs.length
+          ? check(await db.from('movimientos').insert(movs.map(toRow)).select()).map(fromRow)
+          : [];
+      } else {
+        state.movs = movs.map((m) => ({ id: newId(), ...m }));
+      }
+      saveLocal();
+    },
+  };
+
+  // Ejecuta un cambio, redibuja y avisa; si falla la conexión, lo dice y no pierde lo que había.
+  async function guardar(accion, okMsg) {
+    try {
+      await accion();
+      render();
+      if (okMsg) toast(okMsg);
+      return true;
+    } catch (e) {
+      console.error(e);
+      toast('No se pudo guardar. Revisá la conexión e intentá de nuevo.');
+      return false;
+    }
   }
 
   // Acepta "250000", "250.000", "250.000,50", "$ 1.500" y "-500".
@@ -727,7 +809,7 @@
   });
   fFecha.addEventListener('input', () => { if (fFecha.value) setError('Fecha', ''); });
 
-  form.addEventListener('submit', (e) => {
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const importe = parseMonto(fImporte.value);
     const eImp = importeError(importe);
@@ -746,16 +828,13 @@
     };
     if (editing.tipo === 'cobro') data.estado = form.estado.value;
     const label = editing.tipo === 'cobro' ? 'Cobro' : 'Gasto';
-    if (editing.id) {
-      Object.assign(state.movs.find((x) => x.id === editing.id), data);
-      toast(label + ' actualizado');
-    } else {
-      state.movs.push({ id: newId(), creado: Date.now(), ...data });
-      toast(label + ' guardado');
-    }
-    save();
-    dlg.close();
-    render();
+    const btn = $('btnSave');
+    btn.disabled = true;
+    const ok = editing.id
+      ? await guardar(() => store.update(editing.id, data), label + ' actualizado')
+      : await guardar(() => store.add(data), label + ' guardado');
+    btn.disabled = false;
+    if (ok) dlg.close();
   });
 
   // Las acciones que borran datos piden un segundo clic en el mismo botón,
@@ -784,12 +863,8 @@
   }
 
   $('btnCancel').addEventListener('click', () => dlg.close());
-  resetDelete = twoStep($('btnDelete'), '¿Seguro? Eliminar', () => {
-    state.movs = state.movs.filter((x) => x.id !== editing.id);
-    save();
-    dlg.close();
-    render();
-    toast('Movimiento eliminado');
+  resetDelete = twoStep($('btnDelete'), '¿Seguro? Eliminar', async () => {
+    if (await guardar(() => store.remove(editing.id), 'Movimiento eliminado')) dlg.close();
   });
 
   $('addCobro').addEventListener('click', () => openForm('cobro'));
@@ -802,10 +877,7 @@
       const m = state.movs.find((x) => x.id === ed.dataset.edit);
       openForm(m.tipo, m.id);
     } else if (cf) {
-      state.movs.find((x) => x.id === cf.dataset.confirm).estado = 'confirmado';
-      save();
-      render();
-      toast('Cobro confirmado');
+      guardar(() => store.update(cf.dataset.confirm, { estado: 'confirmado' }), 'Cobro confirmado');
     } else {
       const row = e.target.closest('.row[data-day]');
       if (row) setCursor(Number(row.dataset.day));
@@ -823,11 +895,10 @@
   // Datos de prueba de la ficha (entregable para la clase 4). El período arranca el
   // 01/10 con $ 0; los tres primeros movimientos llevan el saldo a los $ 180.000 de
   // dinero disponible que plantea la ficha antes del alquiler del 10/10.
-  function cargarEjemplo() {
+  function ejemplo() {
     const y = new Date().getFullYear();
     const t = Date.now();
-    state = {
-      movs: [
+    return [
         { tipo: 'cobro', importe: 150000, fecha: y + '-10-02', estado: 'confirmado', concepto: 'Cliente E' },
         { tipo: 'gasto', importe: 30000, fecha: y + '-10-05', concepto: 'Servicios' },
         { tipo: 'cobro', importe: 60000, fecha: y + '-10-07', estado: 'confirmado', concepto: 'Cliente D' },
@@ -837,28 +908,62 @@
         { tipo: 'gasto', importe: 300000, fecha: y + '-11-02', concepto: 'Pago a proveedor' },
         { tipo: 'cobro', importe: 120000, fecha: y + '-11-05', estado: 'previsto', concepto: 'Cliente B · suele pagar tarde' },
         { tipo: 'cobro', importe: 90000, fecha: y + '-11-18', estado: 'previsto', concepto: 'Cliente C' },
-      ].map((m, i) => ({ id: newId(), creado: t + i, ...m })),
-      ejemplo: true,
-    };
-    save();
+    ].map((m, i) => ({ creado: t + i, ...m }));
   }
 
+  // Solo se marca como ejemplo en el modo local: en Supabase los datos son de todos.
   twoStep($('loadSample'), '¿Reemplazar lo cargado? Confirmar', () => {
-    cargarEjemplo();
-    render();
-    toast('Datos de ejemplo cargados');
+    guardar(async () => {
+      await store.replaceAll(ejemplo());
+      state.ejemplo = !db;
+      saveLocal();
+    }, 'Datos de ejemplo cargados');
   }, () => state.movs.length > 0);
 
   twoStep($('clearAll'), '¿Borrar todo? Confirmar', () => {
-    state = { movs: [] };
-    save();
-    render();
-    toast('Empezás de cero');
+    guardar(async () => {
+      await store.replaceAll([]);
+      state.ejemplo = false;
+      saveLocal();
+    }, 'Empezás de cero');
   }, () => state.movs.length > 0);
 
-  // La primera vez que alguien abre la app ve los datos de ejemplo cargados.
-  if (!load()) cargarEjemplo();
-  render();
+  // Con Supabase, cuando otra persona cambia algo se vuelve a traer la tabla.
+  let refetchTimer;
+  function escucharCambios() {
+    db.channel('movimientos')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'movimientos' }, () => {
+        clearTimeout(refetchTimer);
+        refetchTimer = setTimeout(() => store.fetch().then(render).catch((e) => console.error(e)), 300);
+      })
+      .subscribe();
+  }
+
+  async function iniciar() {
+    $('storageNote').textContent = db
+      ? 'Datos compartidos: todos los que abren este enlace ven y modifican los mismos movimientos.'
+      : quiereSupabase
+        ? 'No se pudo conectar con Supabase: los datos se guardan en este navegador.'
+        : 'Los datos se guardan en este navegador.';
+    if (db) {
+      $('list').innerHTML = '<div class="empty"><p>Cargando movimientos…</p></div>';
+      try {
+        await store.fetch();
+      } catch (e) {
+        console.error(e);
+        $('list').innerHTML = '<div class="empty"><p>No se pudieron traer los datos de Supabase. Revisá config.js y que la tabla exista.</p></div>';
+        return;
+      }
+      escucharCambios();
+    } else if (!loadLocal()) {
+      // La primera vez que alguien abre la app en su navegador ve los datos de ejemplo.
+      await store.replaceAll(ejemplo());
+      state.ejemplo = true;
+      saveLocal();
+    }
+    render();
+  }
+  iniciar();
 })();
 </script>
 </body>
