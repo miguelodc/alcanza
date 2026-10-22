@@ -911,7 +911,8 @@
     $('fEstado').hidden = !isCobro;
     $('btnDelete').hidden = !m;
     fImporte.value = m ? String(m.importe).replace('.', ',') : '';
-    fFecha.value = m ? m.fecha : '';
+    // Un movimiento nuevo arranca con la fecha de hoy: solo se cambia si hace falta.
+    fFecha.value = m ? m.fecha : dayToIso(todayDay());
     fConcepto.value = m ? m.concepto || '' : '';
     form.estado.value = m && m.estado ? m.estado : 'previsto';
     clearErrors();
@@ -935,6 +936,16 @@
     return '';
   }
 
+  // Una fecha de hace más de un año o de dentro de más de dos casi siempre es un año mal
+  // tipeado, y estira el período y el gráfico: se pide revisarla.
+  function errorFecha(iso) {
+    if (!iso) return 'Elegí una fecha.';
+    const d = isoToDay(iso);
+    const hoy = todayDay();
+    if (d < hoy - 365 || d > hoy + 730) return 'Revisá el año: la fecha queda en ' + iso.slice(0, 4) + '.';
+    return '';
+  }
+
   function setError(k, msg) {
     $('f' + k).classList.toggle('invalid', !!msg);
     $('e' + k).textContent = msg;
@@ -953,7 +964,7 @@
     e.preventDefault();
     const importe = parseMonto(fImporte.value);
     const eImp = importeError(importe);
-    const eFec = fFecha.value ? '' : 'Elegí una fecha.';
+    const eFec = errorFecha(fFecha.value);
     setError('Importe', eImp);
     setError('Fecha', eFec);
     if (eImp || eFec) {
