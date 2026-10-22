@@ -118,6 +118,35 @@
   .sub { font-size: 14px; color: var(--muted); }
   .sub strong { font-weight: 600; }
   .panel { align-items: start; }
+  .alerta {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+    border-radius: 12px;
+    border: 1px solid;
+  }
+  .alerta.mal { background: var(--red-bg); border-color: var(--red); }
+  .alerta.bien { background: var(--green-bg); border-color: var(--green); }
+  .alerta-icono {
+    flex: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-weight: 700;
+    color: var(--surface);
+  }
+  .mal .alerta-icono { background: var(--red); }
+  .bien .alerta-icono { background: var(--green); }
+  .alerta-texto { display: grid; gap: 4px; min-width: 0; }
+  .alerta-titulo { font-size: 19px; font-weight: 700; line-height: 1.3; }
+  .mal .alerta-titulo { color: var(--red); }
+  .bien .alerta-titulo { color: var(--green); }
+  .alerta-texto p { margin: 0; }
+  .alerta .btn-small { justify-self: start; margin-top: 4px; }
   .tl-legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin: 6px 0 2px; }
   .tl-legend svg { vertical-align: middle; margin-right: 4px; }
   .saldo-prev { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
@@ -220,6 +249,8 @@
     <h1>Alcanza</h1>
     <p>¿Me alcanza el dinero? Cobros, gastos y saldo día a día.</p>
   </header>
+
+  <section class="alerta" id="alerta" role="status" hidden></section>
 
   <section class="panel" aria-label="Resumen">
     <div>
@@ -497,6 +528,7 @@
     buildTimeline(rows);
     drawChart();
     updateReadout();
+    renderAlerta();
     const list = $('list');
     list.classList.toggle('hide-saldo', filter !== 'todos');
 
@@ -705,6 +737,60 @@
       : '<span class="muted">Sin movimientos este día</span>';
   }
 
+  // El mensaje principal: el primer día, desde hoy, en que el saldo confirmado
+  // queda por debajo de $ 0, qué lo provoca y si lo previsto alcanza para cubrirlo.
+  let diaAlerta = null;
+  function renderAlerta() {
+    const box = $('alerta');
+    if (!tl) { box.hidden = true; return; }
+    const desde = Math.max(tl.today, tl.start);
+    const primerNegativo = (serie) => {
+      for (let d = desde; d <= tl.end; d++) if (serie[d - tl.start] < 0) return d;
+      return null;
+    };
+    const valor = (serie, d) => serie[d - tl.start];
+    const dia = (d) => fmtFecha(dayToIso(d));
+    const dReal = primerNegativo(tl.real);
+    const dProy = primerNegativo(tl.saldo);
+    diaAlerta = dReal;
+    box.hidden = false;
+
+    if (dReal == null) {
+      let min = desde;
+      for (let d = desde; d <= tl.end; d++) if (valor(tl.real, d) < valor(tl.real, min)) min = d;
+      box.className = 'alerta bien';
+      box.innerHTML = '<span class="alerta-icono" aria-hidden="true">✓</span><div class="alerta-texto">' +
+        '<span class="alerta-titulo">Te alcanza hasta el ' + dia(tl.end) + '</span>' +
+        '<p>Contando solo lo confirmado, tu saldo no baja de $ 0. El punto más bajo es ' + fmt(valor(tl.real, min)) + ' el ' + dia(min) + '.</p>' +
+        '</div>';
+      return;
+    }
+
+    const causas = tl.rows.filter((r, i) => tl.days[i] === dReal && r.tipo === 'gasto');
+    const causa = causas.length
+      ? 'Lo provoca: ' + causas.map((r) => escapeHtml(r.concepto || 'Gasto') + ' ' + fmt(-r.importe)).join(', ') + '.'
+      : 'Ya venías por debajo de $ 0.';
+    let previstos;
+    if (dProy == null) previstos = 'Si cobrás a tiempo lo previsto, lo cubrís.';
+    else if (dProy === dReal) previstos = 'Aunque cobres todo lo previsto, ese día igual te falta: quedás en ' + fmt(valor(tl.saldo, dProy)) + '.';
+    else previstos = 'Aunque cobres lo previsto, el ' + dia(dProy) + ' también te falta: quedás en ' + fmt(valor(tl.saldo, dProy)) + '.';
+
+    box.className = 'alerta mal';
+    box.innerHTML = '<span class="alerta-icono" aria-hidden="true">!</span><div class="alerta-texto">' +
+      '<span class="alerta-titulo">' + (dReal === tl.today ? 'Hoy' : 'El ' + dia(dReal)) +
+      ' no te alcanza: quedás en ' + fmt(valor(tl.real, dReal)) + '</span>' +
+      '<p>' + causa + '</p>' +
+      '<p>' + previstos + '</p>' +
+      '<button class="btn-small" id="verAlerta">Ver ese día en el gráfico</button>' +
+      '</div>';
+  }
+
+  $('alerta').addEventListener('click', (e) => {
+    if (!e.target.closest('#verAlerta') || diaAlerta == null) return;
+    setCursor(diaAlerta);
+    $('tl').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+  });
+
   function markRows() {
     document.querySelectorAll('.row[data-day]').forEach((el) => {
       const d = Number(el.dataset.day);
@@ -892,22 +978,40 @@
     });
   });
 
-  // Datos de prueba de la ficha (entregable para la clase 4). El período arranca el
-  // 01/10 con $ 0; los tres primeros movimientos llevan el saldo a los $ 180.000 de
-  // dinero disponible que plantea la ficha antes del alquiler del 10/10.
+  // Datos de ejemplo: dos meses de un diseñador o diseñadora freelance con cuatro
+  // clientes y gastos fijos. Arranca el 01/10 con $ 0. Lo cobrado hasta el 21/10
+  // deja $ 50.800; desde el 27/10 lo confirmado no alcanza, y aun cobrando todo
+  // lo previsto el saldo queda en negativo entre el 28/10 y el 13/11.
   function ejemplo() {
     const y = new Date().getFullYear();
     const t = Date.now();
+    const c = (dm, importe, estado, concepto) => ({ tipo: 'cobro', importe, fecha: y + '-' + dm, estado, concepto });
+    const g = (dm, importe, concepto) => ({ tipo: 'gasto', importe, fecha: y + '-' + dm, concepto });
     return [
-        { tipo: 'cobro', importe: 150000, fecha: y + '-10-02', estado: 'confirmado', concepto: 'Cliente E' },
-        { tipo: 'gasto', importe: 30000, fecha: y + '-10-05', concepto: 'Servicios' },
-        { tipo: 'cobro', importe: 60000, fecha: y + '-10-07', estado: 'confirmado', concepto: 'Cliente D' },
-        { tipo: 'gasto', importe: 150000, fecha: y + '-10-10', concepto: 'Alquiler' },
-        { tipo: 'cobro', importe: 250000, fecha: y + '-10-20', estado: 'confirmado', concepto: 'Cliente A · factura aceptada' },
-        { tipo: 'gasto', importe: 45000, fecha: y + '-10-25', concepto: 'Monotributo y servicios' },
-        { tipo: 'gasto', importe: 300000, fecha: y + '-11-02', concepto: 'Pago a proveedor' },
-        { tipo: 'cobro', importe: 120000, fecha: y + '-11-05', estado: 'previsto', concepto: 'Cliente B · suele pagar tarde' },
-        { tipo: 'cobro', importe: 90000, fecha: y + '-11-18', estado: 'previsto', concepto: 'Cliente C' },
+      c('10-01', 420000, 'confirmado', 'Estudio Norte · identidad de marca'),
+      g('10-01', 280000, 'Alquiler'),
+      g('10-03', 38000, 'Monotributo'),
+      g('10-05', 21500, 'Internet y celular'),
+      g('10-07', 12900, 'Adobe Creative Cloud'),
+      c('10-10', 180000, 'confirmado', 'Café Brío · menú y redes'),
+      g('10-12', 95000, 'Supermercado (primera quincena)'),
+      g('10-15', 46800, 'Luz y gas'),
+      c('10-17', 95000, 'confirmado', 'Taller de lettering online'),
+      g('10-20', 60000, 'Obra social'),
+      g('10-21', 90000, 'Supermercado (segunda quincena)'),
+      c('10-24', 150000, 'previsto', 'Estudio Norte · piezas de campaña'),
+      g('10-27', 120000, 'Cuota de la notebook (4 de 12)'),
+      g('10-28', 85000, 'Tarjeta de crédito'),
+      g('11-01', 280000, 'Alquiler'),
+      g('11-03', 38000, 'Monotributo'),
+      c('11-05', 220000, 'previsto', 'Café Brío · campaña de verano (paga a 15 días)'),
+      g('11-05', 21500, 'Internet y celular'),
+      g('11-07', 12900, 'Adobe Creative Cloud'),
+      g('11-12', 95000, 'Supermercado (primera quincena)'),
+      c('11-14', 310000, 'previsto', 'Editorial Faro · tapas de libros'),
+      g('11-15', 48000, 'Luz y gas'),
+      g('11-20', 60000, 'Obra social'),
+      c('11-25', 180000, 'previsto', 'Café Brío · mantenimiento de redes'),
     ].map((m, i) => ({ creado: t + i, ...m }));
   }
 
@@ -940,6 +1044,11 @@
   }
 
   async function iniciar() {
+    // En la planilla compartida, borrar o reemplazar todo afecta a todos: esos botones
+    // solo aparecen si el enlace termina en #admin.
+    const admin = location.hash === '#admin';
+    $('loadSample').hidden = !!db && !admin;
+    $('clearAll').hidden = !!db && !admin;
     $('storageNote').textContent = db
       ? 'Datos compartidos: todos los que abren este enlace ven y modifican los mismos movimientos.'
       : quiereSupabase
