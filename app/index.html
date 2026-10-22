@@ -21,6 +21,7 @@
     --focus: #2b5bd7;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body {
     margin: 0;
     background: var(--bg);
@@ -33,6 +34,33 @@
   header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; }
   header h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
   header p { margin: 0; color: var(--muted); }
+  header { flex-wrap: wrap; }
+  .user { margin-left: auto; display: flex; gap: 12px; align-items: baseline; font-size: 14px; color: var(--muted); min-width: 0; }
+  .user span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .auth { display: flex; justify-content: center; padding-block: 24px; }
+  .auth form {
+    width: min(400px, 100%);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 24px;
+    display: grid;
+    gap: 14px;
+  }
+  .auth h2 { margin: 0; font-size: 20px; }
+  .auth-sub { margin: 0; color: var(--muted); font-size: 14px; }
+  .auth input {
+    font: inherit;
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+  }
+  .auth-msg { margin: 0; font-size: 14px; color: var(--text); min-height: 1.4em; }
+  .auth-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .auth-actions button { flex: 1; }
 
   .panel {
     background: var(--surface);
@@ -248,8 +276,33 @@
   <header>
     <h1>Alcanza</h1>
     <p>¿Me alcanza el dinero? Cobros, gastos y saldo día a día.</p>
+    <div class="user" id="userBox" hidden>
+      <span id="userEmail"></span>
+      <button class="btn-link" id="logout">Salir</button>
+    </div>
   </header>
 
+  <section class="auth" id="authBox" hidden>
+    <form id="authForm" novalidate>
+      <h2>Entrá a tu cuenta</h2>
+      <p class="auth-sub">Tus cobros y gastos quedan guardados en tu cuenta y solo los ves vos.</p>
+      <div class="field">
+        <label class="label" for="authEmail">Mail</label>
+        <input id="authEmail" type="email" autocomplete="email" required>
+      </div>
+      <div class="field">
+        <label class="label" for="authPass">Contraseña</label>
+        <input id="authPass" type="password" autocomplete="current-password" minlength="6" required>
+      </div>
+      <p class="auth-msg" id="authMsg" role="status"></p>
+      <div class="auth-actions">
+        <button type="submit" class="btn-primary" id="authEntrar">Entrar</button>
+        <button type="button" id="authCrear">Crear cuenta</button>
+      </div>
+    </form>
+  </section>
+
+  <div id="appMain" hidden>
   <section class="alerta" id="alerta" role="status" hidden></section>
 
   <section class="panel" aria-label="Resumen">
@@ -306,6 +359,7 @@
     <span id="ejemploNote" hidden>Estás viendo datos de ejemplo.</span>
     <span id="storageNote"></span>
   </footer>
+  </div>
 </div>
 
 <dialog id="dlg">
@@ -1015,7 +1069,7 @@
     ].map((m, i) => ({ creado: t + i, ...m }));
   }
 
-  // Solo se marca como ejemplo en el modo local: en Supabase los datos son de todos.
+  // Solo se marca como ejemplo en el modo local: en una cuenta son datos del usuario.
   twoStep($('loadSample'), '¿Reemplazar lo cargado? Confirmar', () => {
     guardar(async () => {
       await store.replaceAll(ejemplo());
@@ -1032,45 +1086,116 @@
     }, 'Empezás de cero');
   }, () => state.movs.length > 0);
 
-  // Con Supabase, cuando otra persona cambia algo se vuelve a traer la tabla.
+  // ----- Cuentas (Supabase Auth): cada persona ve solo sus movimientos -----
+  let usuario = null;
+  let canal = null;
   let refetchTimer;
-  function escucharCambios() {
-    db.channel('movimientos')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'movimientos' }, () => {
+
+  // Si la misma cuenta cambia algo en otro dispositivo, se vuelve a traer la tabla.
+  function escucharCambios(uid) {
+    canal = db.channel('movimientos-' + uid)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'movimientos', filter: 'user_id=eq.' + uid }, () => {
         clearTimeout(refetchTimer);
         refetchTimer = setTimeout(() => store.fetch().then(render).catch((e) => console.error(e)), 300);
       })
       .subscribe();
   }
 
+  async function abrirSesion(user) {
+    if (usuario && usuario.id === user.id) return;
+    usuario = user;
+    state = { movs: [] };
+    $('authBox').hidden = true;
+    $('appMain').hidden = false;
+    $('userBox').hidden = false;
+    $('userEmail').textContent = user.email;
+    $('list').innerHTML = '<div class="empty"><p>Cargando tus movimientos…</p></div>';
+    try {
+      await store.fetch();
+    } catch (e) {
+      console.error(e);
+      $('list').innerHTML = '<div class="empty"><p>No se pudieron traer tus movimientos. Revisá la conexión y recargá la página.</p></div>';
+      return;
+    }
+    escucharCambios(user.id);
+    render();
+  }
+
+  function cerrarSesionUI() {
+    usuario = null;
+    if (canal) { db.removeChannel(canal); canal = null; }
+    state = { movs: [] };
+    $('appMain').hidden = true;
+    $('userBox').hidden = true;
+    $('authBox').hidden = false;
+    $('authMsg').textContent = '';
+  }
+
+  function errorDeIngreso(err) {
+    const m = (err && err.message) || '';
+    if (/invalid login credentials/i.test(m)) return 'El mail o la contraseña no son correctos.';
+    if (/already registered|already been registered/i.test(m)) return 'Ya hay una cuenta con ese mail. Tocá Entrar.';
+    if (/at least 6/i.test(m)) return 'La contraseña tiene que tener al menos 6 caracteres.';
+    if (/email not confirmed/i.test(m)) return 'Falta confirmar la cuenta: revisá tu mail.';
+    if (/valid email|invalid format/i.test(m)) return 'Revisá el mail: no parece una dirección válida.';
+    return 'No se pudo entrar: ' + m;
+  }
+
+  async function autenticar(modo) {
+    const email = $('authEmail').value.trim();
+    const password = $('authPass').value;
+    const msg = $('authMsg');
+    if (!email || !password) { msg.textContent = 'Completá el mail y la contraseña.'; return; }
+    msg.textContent = modo === 'entrar' ? 'Entrando…' : 'Creando la cuenta…';
+    $('authEntrar').disabled = $('authCrear').disabled = true;
+    const res = modo === 'entrar'
+      ? await db.auth.signInWithPassword({ email, password })
+      : await db.auth.signUp({ email, password });
+    $('authEntrar').disabled = $('authCrear').disabled = false;
+    if (res.error) { msg.textContent = errorDeIngreso(res.error); return; }
+    if (!res.data.session) {
+      msg.textContent = 'Te mandamos un mail para confirmar la cuenta. Confirmala y después tocá Entrar.';
+      return;
+    }
+    msg.textContent = '';
+    $('authPass').value = '';
+    abrirSesion(res.data.session.user);
+  }
+
+  $('authForm').addEventListener('submit', (e) => { e.preventDefault(); autenticar('entrar'); });
+  $('authCrear').addEventListener('click', () => autenticar('crear'));
+  $('logout').addEventListener('click', async () => {
+    await db.auth.signOut();
+    cerrarSesionUI();
+  });
+
   async function iniciar() {
-    // En la planilla compartida, borrar o reemplazar todo afecta a todos: esos botones
-    // solo aparecen si el enlace termina en #admin.
-    const admin = location.hash === '#admin';
-    $('loadSample').hidden = !!db && !admin;
-    $('clearAll').hidden = !!db && !admin;
-    $('storageNote').textContent = db
-      ? 'Datos compartidos: todos los que abren este enlace ven y modifican los mismos movimientos.'
-      : quiereSupabase
+    if (!db) {
+      $('storageNote').textContent = quiereSupabase
         ? 'No se pudo conectar con Supabase: los datos se guardan en este navegador.'
         : 'Los datos se guardan en este navegador.';
-    if (db) {
-      $('list').innerHTML = '<div class="empty"><p>Cargando movimientos…</p></div>';
-      try {
-        await store.fetch();
-      } catch (e) {
-        console.error(e);
-        $('list').innerHTML = '<div class="empty"><p>No se pudieron traer los datos de Supabase. Revisá config.js y que la tabla exista.</p></div>';
-        return;
+      $('appMain').hidden = false;
+      if (!loadLocal()) {
+        // La primera vez que alguien abre la app en su navegador ve los datos de ejemplo.
+        await store.replaceAll(ejemplo());
+        state.ejemplo = true;
+        saveLocal();
       }
-      escucharCambios();
-    } else if (!loadLocal()) {
-      // La primera vez que alguien abre la app en su navegador ve los datos de ejemplo.
-      await store.replaceAll(ejemplo());
-      state.ejemplo = true;
-      saveLocal();
+      render();
+      return;
     }
-    render();
+    $('storageNote').textContent = 'Tus movimientos se guardan en tu cuenta: solo los ves vos, desde cualquier dispositivo.';
+    const { data } = await db.auth.getSession();
+    if (data.session) await abrirSesion(data.session.user);
+    else $('authBox').hidden = false;
+    // Supabase recomienda no llamar a la base dentro de este aviso: se difiere un instante.
+    db.auth.onAuthStateChange((evento, session) => {
+      const user = session && session.user;
+      setTimeout(() => {
+        if (user) abrirSesion(user);
+        else if (usuario) cerrarSesionUI();
+      }, 0);
+    });
   }
   iniciar();
 })();
